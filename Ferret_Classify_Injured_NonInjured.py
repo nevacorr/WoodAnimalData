@@ -25,11 +25,8 @@ outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
 # Set number of splits for stratified k fold cross validation
 n_splits = 5
 
-#Load ferret data with injury information
-injury = pd.read_csv('CW_GI_Path2.csv')
-
 #Load ferret data with multiple run information
-ferret_mrun = pd.read_csv('Ferret CatWalk Run Statistics MulitpleRuns March2024.csv')
+ferret_mrun = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
 
 #get unique ID values for these dataframes
 unique_id_injury_file = injury['ID'].unique().tolist()
