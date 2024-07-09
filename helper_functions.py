@@ -7,6 +7,7 @@ import math
 import numpy as np
 from sklearn.metrics import confusion_matrix
 from sklearn.linear_model import LassoCV
+from matplotlib.ticker import MaxNLocator, FormatStrFormatter
 
 def get_dataframe_info(df):
     """
@@ -52,7 +53,8 @@ def plot_feature_distributions(data_df, column_list):
         fig.subplots_adjust(hspace=0.3, wspace=0.5)
         fig.set_size_inches(12, 15)
         for i, column in enumerate(column_list[row:row+30]):
-            sns.histplot(df[column],ax=axes[i//n_cols,i%n_cols])
+            ax = axes[i//n_cols,i%n_cols]
+            sns.histplot(df[column],ax=ax)
         plt.show(block=False)
         mystop=1
 

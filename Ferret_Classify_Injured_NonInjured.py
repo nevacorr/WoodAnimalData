@@ -25,50 +25,55 @@ outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
 # Set number of splits for stratified k fold cross validation
 n_splits = 5
 
-#Load ferret data with multiple run information
-ferret_mrun = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
+# Load ferret data with multiple run information
+ferret = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
 
-#get unique ID values for these dataframes
-unique_id_injury_file = injury['ID'].unique().tolist()
-unique_id_mrun_file = ferret_mrun['ID'].unique().tolist()
+ferret_orig=ferret.copy()
 
-injury_data_no_mrun = [a for a in unique_id_injury_file if a not in unique_id_mrun_file]
-mrun_data_no_injury = [a for a in unique_id_mrun_file if a not in unique_id_injury_file]
+# Brain regional size measurements
+columns_brain_volumes = ['total volume (cm^3)', 'cerebrum+brainstem (cm^3)', 'cerebellum (cm^3)', '% cerebellum', 'Summed White Matter GFAP (um)',
+                     'CC Thickness (um)', 'Overall Sulci Sum', 'Overall Gyri Sum']
 
-#copy injury measures from brain from injury datafile to multiple ferret run data file
+# Remove brain volume columns
+ferret.drop(columns=columns_brain_volumes, inplace=True)
 
-ferret = pd.merge(ferret_mrun, injury[['ID', 'Pathology Score', 'total gross score',
-                                       'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum']], on='ID', how='left')
+# Remove rows with trial and run information and walkway width
+ferret.drop(columns=['Trial', 'Run', 'WalkWay_Width_(cm)'], inplace=True)
 
-# Select rows containing the string '-'
+# Remove rows with constant values
+ferret = ferret.loc[:, (ferret != ferret.iloc[0]).any()]
+
+# Find missing data. Missing values are indicated with nan or '-'. Select rows containing the string '-'
 rows_with_dash = ferret[ferret.apply(lambda row: '-' in row.values, axis=1)]
 # Write these rows to a new dataframe
 dash_df = pd.DataFrame(rows_with_dash)
 
-#count number of rows that contain string '-'
+#Find missing data count number of rows that contain string '-'
 count = (ferret == '-').any(axis=1).sum()
 print("Number of rows containing the string '-':", count)
 #replace '-' with nan
 ferret.replace('-', np.nan, inplace=True)
 
-## Count total number of null values for each column
-pd.set_option('display.max_rows' , None)
-print(" \nCount total null values for each column  : \n\n",ferret.isnull().sum())
+
+
+# ## Count and print total number of null values for each column with nans
+nan_cols = ferret.isna().sum()
+columns_with_nans = nan_cols[nan_cols > 0]
+print(columns_with_nans)
 
 #remove rows with nans
 ferret.dropna(inplace=True)
 ferret.reset_index(inplace=True, drop=True)
 
-## Count total number of null values in dataframe after nan removal
-pd.set_option('display.max_rows' , None)
-print(" \nAfter nan removal, count total null values in dataframe : \n\n",ferret.isnull().sum().sum())
+# Confirm there are no nan values left in dataframe
+nan_vals = ferret.isna().sum().sum()
 
 #recode gender as binary feature M=1, F=0
 ferret['Sex'] = ferret['Sex'].replace('F', 0) #female = 0
 ferret['Sex'] = ferret['Sex'].replace('M', 1) #male = 1
 
 #make total gross score a binary columns because there are so few cases with values >1
-ferret.loc[ferret['total gross score'] > 1, 'total gross score'] = 1
+# ferret.loc[ferret['total gross score'] > 1, 'total gross score'] = 1
 
 # give every subject group a number
 controlcode = 0  # Control = 0
@@ -82,16 +87,18 @@ ferret['Group'] = ferret['Group'].replace(['Vehicle'], vehiclecode)
 ferret['Group'] = ferret['Group'].replace(['Epo'], epocode)
 ferret['Group'] = ferret['Group'].replace(['TH'], thcode)
 
+# Convert any column of type object to type float
+for col in ferret.columns:
+    if ferret[col].dtype == 'O':
+        ferret[col] = pd.to_numeric(ferret[col])
+
 #Plot histograms of features
-# plot_feature_distributions(ferret, ferret.columns)
+plot_feature_distributions(ferret, ferret.columns)
 
 #calculate correlation matrix
 print(ferret.dtypes)
 
-#the columns LF and RF_MinIntensityMean has a constant value of 8 for all rows so drop this column
-ferret.drop(columns=['RF_MinIntensity_Mean', 'LF_MinIntensity_Mean'], inplace=True)
-#Ask about StepSequence_RB_(%), StepSequence_RA_(%), Support_Zero_(%)
-
+# Select Group Index as
 group_index = epocode
 
 group_of_interest_indices = ferret.index[ferret['Trx'] < group_index].tolist()
