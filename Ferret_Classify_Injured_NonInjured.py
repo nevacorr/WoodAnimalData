@@ -17,6 +17,7 @@ from sklearn.compose import ColumnTransformer
 import sys
 from matplotlib import pyplot as plt
 import seaborn as sns
+from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_corr_features
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
@@ -28,144 +29,37 @@ outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
 n_splits = 5
 
 # Load ferret data with multiple run information
-ferret = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
+ferret_orig = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
 
-###################################################################################################
-########################################## DATA CLEANING ##########################################
-###################################################################################################
+# Clean data
+ferret = clean_data(ferret_orig)
 
-ferret_orig=ferret.copy()
-
-# Brain regional size measurements
-columns_brain_volumes = ['total volume (cm^3)', 'cerebrum+brainstem (cm^3)', 'cerebellum (cm^3)', '% cerebellum', 'Summed White Matter GFAP (um)',
-                     'CC Thickness (um)', 'Overall Sulci Sum', 'Overall Gyri Sum']
-
-# Remove brain volume columns
-ferret.drop(columns=columns_brain_volumes, inplace=True)
-
-# Remove rows with trial and run information and walkway width
-ferret.drop(columns=['Trial', 'Run', 'WalkWay_Width_(cm)'], inplace=True)
-
-# Remove rows with constant values
-ferret = ferret.loc[:, (ferret != ferret.iloc[0]).any()]
-
-# Find missing data. Missing values are indicated with nan or '-'. Select rows containing the string '-'
-rows_with_dash = ferret[ferret.apply(lambda row: '-' in row.values, axis=1)]
-# Write these rows to a new dataframe
-dash_df = pd.DataFrame(rows_with_dash)
-
-#Find missing data count number of rows that contain string '-'
-count = (ferret == '-').any(axis=1).sum()
-print("Number of rows containing the string '-':", count)
-#replace '-' with nan
-ferret.replace('-', np.nan, inplace=True)
-
-# ## Count and print total number of null values for each column with nans
-nan_cols = ferret.isna().sum()
-columns_with_nans = nan_cols[nan_cols > 0]
-print(columns_with_nans)
-
-#remove rows with nans
-ferret.dropna(inplace=True)
-ferret.reset_index(inplace=True, drop=True)
-
-# Recode gender as numeric categorical feature M=1, F=0
-ferret['Sex'] = ferret['Sex'].replace('F', 0) #female = 0
-ferret['Sex'] = ferret['Sex'].replace('M', 1) #male = 1
-
-# Give target variables simpler names
-ferret.rename(columns={'Cortical Lesion (0-4) + Mineralization (0-4)': 'total gross score',
-               'Morph. Injury Score (path+BM+WM)': 'Pathology Score'}, inplace=True)
-
-# Make total gross score a binary columns because there are so few cases with values >1
-ferret.loc[ferret['total gross score'] > 1, 'total gross score'] = 1
-
-# give every subject group a number
-controlcode = 0  # Control = 0
-vehiclecode = 1  # Vehicle = 1
-epocode = 2  # Epo = 2
-thcode = 3  # TH = 3
-
-# Code group as number instead of string
-ferret['Group'] = ferret['Group'].replace(['Control'], controlcode)
-ferret['Group'] = ferret['Group'].replace(['Veh'], vehiclecode)
-ferret['Group'] = ferret['Group'].replace(['Vehicle'], vehiclecode)
-ferret['Group'] = ferret['Group'].replace(['Epo'], epocode)
-ferret['Group'] = ferret['Group'].replace(['TH'], thcode)
-
-# Convert any column of type object to type float
-for col in ferret.columns:
-    if ferret[col].dtype == 'O':
-        ferret[col] = pd.to_numeric(ferret[col])
-
-###################################################################################################
-########################## PLOT DATA DISTRIBUTIONS AND CORRELATIONS ###############################
-###################################################################################################
-
-#Plot histograms of features
+# Plot distributions of features
 # plot_feature_distributions(ferret, ferret.columns)
-
-# Check column datatypes
-dt = ferret.dtypes
 
 # Remove all cases where group is not control or vehicle
 ferret_cv = ferret[ferret['Group'].isin([1,2])]
 ferret_cv.reset_index(inplace=True, drop=True)
 
-#select feature columns
+# Define feature columns
 all_columns=ferret_cv.columns.tolist()
 subj_info_columns = ['ID', 'Group']
-
 response_columns = ['Pathology Score', 'total gross score']
 feature_columns = [x for x in all_columns if ((x not in subj_info_columns) and (x not in response_columns))]
 
-# Plot correlation matrix
+# Calculate lower triangle correlation matrix
 ferret_to_corr = ferret_cv[feature_columns]
 ferret_to_corr = ferret_to_corr.drop(columns=['Sex'])
-corr_matrix = ferret_to_corr.corr()
+lower_tri_corr = calc_corr(ferret_to_corr, plotheatmap=1)
 
-# Retain upper triangular values of correlation matrix and
-# make Lower triangular values Null
-# make a mask for the upper triangle
-mask = np.tril(np.ones(corr_matrix.shape, dtype=bool), k=-1)
-# Apply mask to correlation matrix
-lower_tri_corr = corr_matrix.where(mask)
-
-# plt.figure(figsize=(16,16))
-# sns.heatmap(lower_tri_corr, vmin=-1, vmax=1, xticklabels=lower_tri_corr.columns, yticklabels=lower_tri_corr.columns,
-#             cmap='coolwarm')
-# plt.tight_layout()
-# plt.show(block=False)
-
-###################################################################################################
-############################## REMOVE HIGHLY CORRELATED FEATURES ##################################
-###################################################################################################
-
-# Find features that are not highly correlated with other features
-s=lower_tri_corr.unstack().dropna()
-s=s.reset_index()
-s.rename(columns={0: 'rval'}, inplace=True)
-s.sort_values(by='rval', ascending=False, inplace=True, ignore_index=True)
-high_corr_features = s.loc[abs(s['rval']) > 0.7].copy()
-high_corr_features.sort_values(by='level_1', inplace=True, ignore_index=True)
-corr_features_to_remove = high_corr_features['level_1'].unique().tolist()
-final_features = [f for f in feature_columns if f not in corr_features_to_remove]
-final_columns = [col for col in ferret_cv if col not in corr_features_to_remove]
-
+# Find and remove highly correlated features
+final_features, final_columns = remove_highly_corr_features(ferret_cv, lower_tri_corr, rthreshold=0.7)
 ferret_cv = ferret_cv[final_columns].copy()
 
 # Plot new correlation matrix with highly correlated features removed
 new_corr = ferret_cv[final_features]
 new_corr = new_corr.drop(columns=['Sex'])
-new_corr_matrix = new_corr.corr()
-mask = np.tril(np.ones(new_corr_matrix.shape, dtype=bool), k=-1)
-lower_tri_corr_nodup = new_corr_matrix.where(mask)
-
-# plt.figure(figsize=(16,16))
-# sns.heatmap(lower_tri_corr_nodup, vmin=-1, vmax=1, xticklabels=lower_tri_corr_nodup.columns,
-#             yticklabels=lower_tri_corr_nodup.columns, cmap='coolwarm')
-# plt.tight_layout()
-# plt.show(block=False)
+calc_corr(new_corr, plotheatmap=1)
 
 ###################################################################################################
 ########################### SPLIT DATA INTO TRAIN TEST AND NORMALIZE ##############################
