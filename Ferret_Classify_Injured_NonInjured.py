@@ -123,11 +123,11 @@ mask = np.tril(np.ones(corr_matrix.shape, dtype=bool), k=-1)
 # Apply mask to correlation matrix
 lower_tri_corr = corr_matrix.where(mask)
 
-plt.figure(figsize=(16,16))
-sns.heatmap(lower_tri_corr, vmin=-1, vmax=1, xticklabels=lower_tri_corr.columns, yticklabels=lower_tri_corr.columns,
-            cmap='coolwarm')
-plt.tight_layout()
-plt.show(block=False)
+# plt.figure(figsize=(16,16))
+# sns.heatmap(lower_tri_corr, vmin=-1, vmax=1, xticklabels=lower_tri_corr.columns, yticklabels=lower_tri_corr.columns,
+#             cmap='coolwarm')
+# plt.tight_layout()
+# plt.show(block=False)
 
 # Find features that are not highly correlated with other features
 s=lower_tri_corr.unstack().dropna()
@@ -149,11 +149,11 @@ new_corr_matrix = new_corr.corr()
 mask = np.tril(np.ones(new_corr_matrix.shape, dtype=bool), k=-1)
 lower_tri_corr_nodup = new_corr_matrix.where(mask)
 
-plt.figure(figsize=(16,16))
-sns.heatmap(lower_tri_corr_nodup, vmin=-1, vmax=1, xticklabels=lower_tri_corr_nodup.columns,
-            yticklabels=lower_tri_corr_nodup.columns, cmap='coolwarm')
-plt.tight_layout()
-plt.show(block=False)
+# plt.figure(figsize=(16,16))
+# sns.heatmap(lower_tri_corr_nodup, vmin=-1, vmax=1, xticklabels=lower_tri_corr_nodup.columns,
+#             yticklabels=lower_tri_corr_nodup.columns, cmap='coolwarm')
+# plt.tight_layout()
+# plt.show(block=False)
 
 # Split the data into 80/20 train-test split stratified by the target column
 split_df = ferret_cv.groupby('ID').mean()
@@ -170,7 +170,8 @@ y = split_df[['ID', target]].copy()
 
 stratify_by = pd.concat([X['Sex'], y[target]], axis=1)
 
-X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=42)
+X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=42)
+# X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=42)
 X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
 X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), final_features]
 y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), target]
@@ -191,13 +192,12 @@ transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), column
 # Create the pipeline for logistic regression (use for total gross score which was made binary)
 pipe_logreg = Pipeline([
     ('t', transformer),
-    ('pca', PCA()),
+    ('pca', PCA(n_components=32)),
     ('logreg', LogisticRegression(solver='liblinear', random_state=42))
 ])
 
 # Define parameter grid
 param_grid = {
-    'pca__n_components': list(range(1, X_train.shape[1])),
     'logreg__penalty': ['l1', 'l2'],
     'logreg__C': np.logspace(-3, 1, 5)
 }
@@ -242,6 +242,26 @@ plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
 plt.title('ROC Curve for Injured Animal Identification')
 plt.legend()
+plt.show(block=False)
+
+# Plot confusion matrix
+from sklearn.metrics import confusion_matrix
+conf_matrix = confusion_matrix(y_train, y_hat_train)
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
+plt.xlabel('Predicted labels')
+plt.ylabel('True labels')
+plt.title('Confusion Matrix Train Data')
+plt.show(block=False)
+
+# Plot confusion matrix
+from sklearn.metrics import confusion_matrix
+conf_matrix = confusion_matrix(y_test, y_hat_test)
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
+plt.xlabel('Predicted labels')
+plt.ylabel('True labels')
+plt.title('Confusion Matrix Test Data')
 plt.show()
 
 mystop=1
