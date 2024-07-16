@@ -30,6 +30,10 @@ n_splits = 5
 # Load ferret data with multiple run information
 ferret = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
 
+###################################################################################################
+########################################## DATA CLEANING ##########################################
+###################################################################################################
+
 ferret_orig=ferret.copy()
 
 # Brain regional size measurements
@@ -94,6 +98,10 @@ for col in ferret.columns:
     if ferret[col].dtype == 'O':
         ferret[col] = pd.to_numeric(ferret[col])
 
+###################################################################################################
+########################## PLOT DATA DISTRIBUTIONS AND CORRELATIONS ###############################
+###################################################################################################
+
 #Plot histograms of features
 # plot_feature_distributions(ferret, ferret.columns)
 
@@ -129,6 +137,10 @@ lower_tri_corr = corr_matrix.where(mask)
 # plt.tight_layout()
 # plt.show(block=False)
 
+###################################################################################################
+############################## REMOVE HIGHLY CORRELATED FEATURES ##################################
+###################################################################################################
+
 # Find features that are not highly correlated with other features
 s=lower_tri_corr.unstack().dropna()
 s=s.reset_index()
@@ -155,6 +167,10 @@ lower_tri_corr_nodup = new_corr_matrix.where(mask)
 # plt.tight_layout()
 # plt.show(block=False)
 
+###################################################################################################
+########################### SPLIT DATA INTO TRAIN TEST AND NORMALIZE ##############################
+###################################################################################################
+
 # Split the data into 80/20 train-test split stratified by the target column
 split_df = ferret_cv.groupby('ID').mean()
 split_df = split_df.loc[:,['Sex', target]]
@@ -172,15 +188,24 @@ stratify_by = pd.concat([X['Sex'], y[target]], axis=1)
 
 X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=42)
 # X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=42)
+
 X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
 X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), final_features]
-y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), target]
-y_test = ferret_cv.loc[ferret_cv['ID'].isin(y_test_groupby['ID']), target]
+y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), ['ID'] + [target]]
+y_test = ferret_cv.loc[ferret_cv['ID'].isin(y_test_groupby['ID']), ['ID'] + [target]]
 
 X_train.reset_index(drop=True, inplace=True)
 X_test.reset_index(drop=True, inplace=True)
 y_train.reset_index(drop=True, inplace=True)
 y_test.reset_index(drop=True, inplace=True)
+
+# Extract ID numbers for all rows of train and test sets
+train_IDs = y_train['ID']
+test_IDs = y_test['ID']
+
+# Drop ID numbers from target dataframe
+y_train.drop(columns=['ID'], inplace=True)
+y_test.drop(columns=['ID'], inplace=True)
 
 # create column transformer for standard scalar
 # choose all columns except for the first column (sex)
@@ -188,6 +213,10 @@ columns_to_scale = final_features.copy()
 columns_to_scale.remove('Sex')
 transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), columns_to_scale)],
                                 remainder='passthrough')
+
+###################################################################################################
+########################### TRAIN AND FIT PCA AND LOGISTIC REGRESSION #############################
+###################################################################################################
 
 # Create the pipeline for logistic regression (use for total gross score which was made binary)
 pipe_logreg = Pipeline([
@@ -217,19 +246,52 @@ explained_variance = best_model.named_steps['pca'].explained_variance_ratio_
 cumulative_explained_variance = np.cumsum(explained_variance)
 n_components_95 = np.argmax(cumulative_explained_variance >= 0.95) + 1
 
+###################################################################################################
+########################## MAKE CLASS PREDICTIONS AND EVALUATE PERFORMANCE ########################
+###################################################################################################
+
 # predict values for the train and test data
 y_hat_train = best_model.predict(X_train)
 y_hat_test = best_model.predict(X_test)
 y_proba_train = best_model.predict_proba(X_train)
 y_proba_test = best_model.predict_proba(X_test)
 
-auc_roc_train = roc_auc_score(y_train, y_proba_train[:, 1])
-auc_roc_test = roc_auc_score(y_test, y_proba_test[:, 1])
+# Assign ID numbers to predictions
+y_hat_train_df = pd.DataFrame()
+y_hat_test_df = pd.DataFrame()
+y_hat_train_df['ID'] = train_IDs
+y_hat_train_df['pred'] = y_hat_train
+y_hat_test_df['ID'] = test_IDs
+y_hat_test_df['pred'] = y_hat_test
+
+y_proba_train_df = pd.DataFrame()
+y_proba_test_df = pd.DataFrame()
+y_proba_train_df['ID'] = train_IDs
+y_proba_train_df['prob0'] = y_proba_train[:, 0]
+y_proba_train_df['prob1'] = y_proba_train[:, 1]
+y_proba_test_df['ID'] = test_IDs
+y_proba_test_df['prob0'] = y_proba_test[:, 0]
+y_proba_test_df['prob1'] = y_proba_test[:, 1]
+
+# Group by 'ID' and determine the average probability
+y_proba_train_mean = y_proba_train_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
+y_proba_test_mean = y_proba_test_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
+
+y_train_groupby_sorted = y_train_groupby.sort_values(by='ID')
+y_test_groupby_sorted = y_test_groupby.sort_values(by='ID')
+y_train_groupby_sorted.drop(columns=['ID'], inplace=True)
+y_test_groupby_sorted.drop(columns=['ID'], inplace=True)
+
+auc_roc_train = roc_auc_score(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
+auc_roc_test = roc_auc_score(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
+
+y_hat_train_final_cat = y_proba_train_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
+y_hat_test_final_cat = y_proba_test_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
 
 # Calculate ROC curve
-fpr_train, tpr_train, thresholds_train = roc_curve(y_train, y_proba_train[:, 1])
+fpr_train, tpr_train, thresholds_train = roc_curve(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
 roc_auc_train = auc(fpr_train, tpr_train)
-fpr, tpr, thresholds = roc_curve(y_test, y_proba_test[:, 1])
+fpr, tpr, thresholds = roc_curve(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
 roc_auc = auc(fpr, tpr)
 # Plot the ROC curve
 plt.figure()
@@ -246,7 +308,7 @@ plt.show(block=False)
 
 # Plot confusion matrix
 from sklearn.metrics import confusion_matrix
-conf_matrix = confusion_matrix(y_train, y_hat_train)
+conf_matrix = confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat)
 plt.figure(figsize=(8, 6))
 sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
 plt.xlabel('Predicted labels')
@@ -256,12 +318,43 @@ plt.show(block=False)
 
 # Plot confusion matrix
 from sklearn.metrics import confusion_matrix
-conf_matrix = confusion_matrix(y_test, y_hat_test)
+conf_matrix = confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat)
 plt.figure(figsize=(8, 6))
 sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
 plt.xlabel('Predicted labels')
 plt.ylabel('True labels')
 plt.title('Confusion Matrix Test Data')
 plt.show()
+
+# Extract PCA components and coefficients
+pca_components = best_model.named_steps['pca'].components_  # Principal axes in feature space
+logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
+
+# Find the largest logistic regression coefficients
+abs_logreg_coef = np.abs(logreg_coef)
+
+# Get indices of components sorted by absolute coefficient (descending order)
+sorted_indices = np.argsort(abs_logreg_coef)[::-1]
+
+# Print or plot the most important components
+n_components_to_show = 5  # Adjust as needed
+for i in range(n_components_to_show):
+    component_idx = sorted_indices[i]
+    print(f"PCA Component {component_idx + 1}: Coefficient {logreg_coef[component_idx]}")
+
+original_feature_names = X_train.columns
+
+# Get the indices of the top features contributing to each principal component
+top_features_indices = np.argsort(np.abs(pca_components), axis=1)[:, ::-1]
+
+# Print or store the top features for each principal component
+n_top_features = 5  # Number of top features to display, adjust as needed
+for i in range(5):
+# for i in range(pca_components.shape[0]):  # Loop through each principal component
+    print(f"Principal Component {i + 1}:")
+    for j in range(n_top_features):  # Display the top features
+        feature_idx = top_features_indices[i, j]
+        print(f"- Feature: {original_feature_names[feature_idx]} (Loading: {pca_components[i, feature_idx]:.3f})")
+    print()
 
 mystop=1
