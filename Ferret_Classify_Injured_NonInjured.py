@@ -19,12 +19,16 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_corr_features
 from data_cleaning_and_exploration import calculate_roc_auc_and_plot, plot_confusion_matrix
-from data_cleaning_and_exploration import print_most_important_features
+from data_cleaning_and_exploration import return_most_important_features
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
+num_tt_splits = 10
+show_confusion_matrices = 0
+show_roc_curve = 0
+plot_distributions = 0
 
 # Load ferret data with multiple run information
 ferret_orig = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
@@ -32,8 +36,9 @@ ferret_orig = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics wi
 # Clean data
 ferret = clean_data(ferret_orig)
 
-# Plot distributions of features
-# plot_feature_distributions(ferret, ferret.columns)
+if plot_distributions:
+    # Plot distributions of features
+    plot_feature_distributions(ferret, ferret.columns)
 
 # Remove all cases where group is not control or vehicle
 ferret_cv = ferret[ferret['Group'].isin([1,2])]
@@ -63,7 +68,7 @@ new_lower_tri_corr = calc_corr(new_corr, plotheatmap=0)
 ########################### SPLIT DATA INTO TRAIN TEST AND NORMALIZE ##############################
 ###################################################################################################
 
-# Split the data into 80/20 train-test split stratified by the target column
+# Make a dataframe of unique subjects with ID and Sex
 split_df = ferret_cv.groupby('ID').mean()
 split_df = split_df.loc[:,['Sex', target]]
 split_df.reset_index(inplace=True)
@@ -80,116 +85,135 @@ stratify_by = pd.concat([X['Sex'], y[target]], axis=1)
 
 # r = X['Sex'].corr(y[target])
 
-X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=1)
-# X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=42)
+important_feature_dict = {}
+roc_auc_train = []
+roc_auc_test = []
 
-X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
-X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), final_features]
-y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), ['ID'] + [target]]
-y_test = ferret_cv.loc[ferret_cv['ID'].isin(y_test_groupby['ID']), ['ID'] + [target]]
+for i in range(num_tt_splits):
 
-X_train.reset_index(drop=True, inplace=True)
-X_test.reset_index(drop=True, inplace=True)
-y_train.reset_index(drop=True, inplace=True)
-y_test.reset_index(drop=True, inplace=True)
+    # X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=None)
+    X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=None)
 
-# Extract ID numbers for all rows of train and test sets
-train_IDs = y_train['ID']
-test_IDs = y_test['ID']
+    X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
+    X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), final_features]
+    y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), ['ID'] + [target]]
+    y_test = ferret_cv.loc[ferret_cv['ID'].isin(y_test_groupby['ID']), ['ID'] + [target]]
 
-# Drop ID numbers from target dataframe
-y_train.drop(columns=['ID'], inplace=True)
-y_test.drop(columns=['ID'], inplace=True)
+    X_train.reset_index(drop=True, inplace=True)
+    X_test.reset_index(drop=True, inplace=True)
+    y_train.reset_index(drop=True, inplace=True)
+    y_test.reset_index(drop=True, inplace=True)
 
-# create column transformer for standard scalar
-# choose all columns except for the first column (sex)
-columns_to_scale = final_features.copy()
-columns_to_scale.remove('Sex')
-transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), columns_to_scale)],
-                                remainder='passthrough')
+    # Extract ID numbers for all rows of train and test sets
+    train_IDs = y_train['ID']
+    test_IDs = y_test['ID']
 
-###################################################################################################
-########################### TRAIN AND FIT LOGISTIC REGRESSION #############################
-###################################################################################################
+    # Drop ID numbers from target dataframe
+    y_train.drop(columns=['ID'], inplace=True)
+    y_test.drop(columns=['ID'], inplace=True)
 
-# Create the pipeline for logistic regression (use for total gross score which was made binary)
-pipe_logreg = Pipeline([
-    ('t', transformer),
-    ('logreg', LogisticRegression(solver='liblinear', random_state=42))
-])
+    # create column transformer for standard scalar
+    # choose all columns except for the first column (sex)
+    columns_to_scale = final_features.copy()
+    columns_to_scale.remove('Sex')
+    transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), columns_to_scale)],
+                                    remainder='passthrough')
 
-# Define parameter grid
-param_grid = {
-    'logreg__penalty': ['l1', 'l2'],
-    'logreg__C': np.logspace(-3, 1, 5)
-}
+    ###################################################################################################
+    ########################### TRAIN AND FIT LOGISTIC REGRESSION #############################
+    ###################################################################################################
 
-grid_search = GridSearchCV(pipe_logreg, param_grid, cv=5, scoring='roc_auc', n_jobs=-1, verbose=4)
+    # Create the pipeline for logistic regression (use for total gross score which was made binary)
+    pipe_logreg = Pipeline([
+        ('t', transformer),
+        ('pca', PCA(n_components=36)),
+        ('logreg', LogisticRegression(solver='liblinear', random_state=42))
+    ])
 
-# Fit the model to the training data
-grid_search.fit(X_train, y_train)
+    # Define parameter grid
+    param_grid = {
+        'logreg__penalty': ['l1', 'l2'],
+        'logreg__C': np.logspace(-3, 1, 10)
+    }
 
-# Get the best parameters and best model
-best_params = grid_search.best_params_
-best_model = grid_search.best_estimator_
+    grid_search = GridSearchCV(pipe_logreg, param_grid, cv=5, scoring='roc_auc', n_jobs=-1)
 
-print("Best Parameters:", best_params)
+    # Fit the model to the training data
+    grid_search.fit(X_train, y_train.values.ravel())
 
-###################################################################################################
-########################## MAKE CLASS PREDICTIONS AND EVALUATE PERFORMANCE ########################
-###################################################################################################
+    # Get the best parameters and best model
+    best_params = grid_search.best_params_
+    best_model = grid_search.best_estimator_
 
-# predict values for the train and test data
-y_hat_train = best_model.predict(X_train)
-y_hat_test = best_model.predict(X_test)
-y_proba_train = best_model.predict_proba(X_train)
-y_proba_test = best_model.predict_proba(X_test)
+    print("Best Parameters:", best_params)
 
-# Assign ID numbers to predictions
-y_hat_train_df = pd.DataFrame()
-y_hat_test_df = pd.DataFrame()
-y_hat_train_df['ID'] = train_IDs
-y_hat_train_df['pred'] = y_hat_train
-y_hat_test_df['ID'] = test_IDs
-y_hat_test_df['pred'] = y_hat_test
+    ###################################################################################################
+    ########################## MAKE CLASS PREDICTIONS AND EVALUATE PERFORMANCE ########################
+    ###################################################################################################
 
-y_proba_train_df = pd.DataFrame()
-y_proba_test_df = pd.DataFrame()
-y_proba_train_df['ID'] = train_IDs
-y_proba_train_df['prob0'] = y_proba_train[:, 0]
-y_proba_train_df['prob1'] = y_proba_train[:, 1]
-y_proba_test_df['ID'] = test_IDs
-y_proba_test_df['prob0'] = y_proba_test[:, 0]
-y_proba_test_df['prob1'] = y_proba_test[:, 1]
+    # predict values for the train and test data
+    y_hat_train = best_model.predict(X_train)
+    y_hat_test = best_model.predict(X_test)
+    y_proba_train = best_model.predict_proba(X_train)
+    y_proba_test = best_model.predict_proba(X_test)
 
-# Group by 'ID' and determine the average probability
-y_proba_train_mean = y_proba_train_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
-y_proba_test_mean = y_proba_test_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
+    # Assign ID numbers to predictions
+    y_hat_train_df = pd.DataFrame()
+    y_hat_test_df = pd.DataFrame()
+    y_hat_train_df['ID'] = train_IDs
+    y_hat_train_df['pred'] = y_hat_train
+    y_hat_test_df['ID'] = test_IDs
+    y_hat_test_df['pred'] = y_hat_test
 
-y_train_groupby_sorted = y_train_groupby.sort_values(by='ID')
-y_test_groupby_sorted = y_test_groupby.sort_values(by='ID')
-y_train_groupby_sorted.drop(columns=['ID'], inplace=True)
-y_test_groupby_sorted.drop(columns=['ID'], inplace=True)
+    y_proba_train_df = pd.DataFrame()
+    y_proba_test_df = pd.DataFrame()
+    y_proba_train_df['ID'] = train_IDs
+    y_proba_train_df['prob0'] = y_proba_train[:, 0]
+    y_proba_train_df['prob1'] = y_proba_train[:, 1]
+    y_proba_test_df['ID'] = test_IDs
+    y_proba_test_df['prob0'] = y_proba_test[:, 0]
+    y_proba_test_df['prob1'] = y_proba_test[:, 1]
 
-auc_roc_train = roc_auc_score(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
-auc_roc_test = roc_auc_score(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
+    # Group by 'ID' and determine the average probability
+    y_proba_train_mean = y_proba_train_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
+    y_proba_test_mean = y_proba_test_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
 
-# Assign categories to the train and test predictions based on average probabilities
-y_hat_train_final_cat = y_proba_train_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
-y_hat_test_final_cat = y_proba_test_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
+    y_train_groupby_sorted = y_train_groupby.sort_values(by='ID')
+    y_test_groupby_sorted = y_test_groupby.sort_values(by='ID')
+    y_train_groupby_sorted.drop(columns=['ID'], inplace=True)
+    y_test_groupby_sorted.drop(columns=['ID'], inplace=True)
 
-# Compute AUC ROC and plot ROC curve for train and test set
-calculate_roc_auc_and_plot(y_train_groupby_sorted.loc[:, target], y_test_groupby_sorted.loc[:, target],
-                           y_proba_train_mean.loc[:, 'prob1'], y_proba_test_mean.loc[:, 'prob1'])
+    auc_roc_train = roc_auc_score(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
+    auc_roc_test = roc_auc_score(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
 
-# Plot confusion matrices
-plot_confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat, 'Train')
-plot_confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat, 'Test')
+    # Assign categories to the train and test predictions based on average probabilities
+    y_hat_train_final_cat = y_proba_train_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
+    y_hat_test_final_cat = y_proba_test_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
 
-# Return logistic regression coefficients
-logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
+    # Compute AUC ROC and plot ROC curve for train and test set
+    auc_train, auc_test = calculate_roc_auc_and_plot(y_train_groupby_sorted.loc[:, target],
+                                              y_test_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'],
+                                              y_proba_test_mean.loc[:, 'prob1'], show_roc_curve)
+    roc_auc_train.append(auc_train)
+    roc_auc_test.append(auc_test)
 
-# Print features with nonzero logistic regression coefficients
-print_most_important_features(logreg_coef, X_train)
+    if show_confusion_matrices:
+        # Plot confusion matrices
+        plot_confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat, 'Train')
+        plot_confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat, 'Test')
+
+    # Return logistic regression coefficients
+    logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
+
+#     # Print features with nonzero logistic regression coefficients
+#     important_feature_dict[i] = return_most_important_features(logreg_coef, X_train)
+#
+# important_features_df = pd.DataFrame({key: pd.Series(value) for key, value in important_feature_dict.items()}).transpose()
+#
+# unique_values_counts = important_features_df.iloc[:, 0:5].stack().value_counts()
+# unique_values_counts.sort_values(ascending=False, inplace=True)
+#
+avg_auc_train = sum(roc_auc_train)/len(roc_auc_train)
+avg_auc_test = sum(roc_auc_test)/len(roc_auc_test)
 
 mystop=1

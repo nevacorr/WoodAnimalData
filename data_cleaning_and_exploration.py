@@ -107,25 +107,27 @@ def remove_highly_corr_features(df, feature_columns, lower_tri_corr,  rthreshold
     final_columns = [col for col in df if col not in corr_features_to_remove]
     return final_features, final_columns
 
-def calculate_roc_auc_and_plot(y_train, y_test, y_proba_train, y_proba_test):
+def calculate_roc_auc_and_plot(y_train, y_test, y_proba_train, y_proba_test, show_roc):
 
     # Calculate ROC curve
     fpr_train, tpr_train, thresholds_train = roc_curve(y_train, y_proba_train)
     roc_auc_train = auc(fpr_train, tpr_train)
-    fpr, tpr, thresholds = roc_curve(y_test, y_proba_test)
-    roc_auc = auc(fpr, tpr)
-    # Plot the ROC curve
-    plt.figure()
-    plt.plot(fpr, tpr, label='ROC curve test set(area = %0.2f)' % roc_auc)
-    plt.plot(fpr_train, tpr_train, label='ROC curve train set (area=%.2f)' % roc_auc_train)
-    plt.plot([0, 1], [0, 1], 'k--', label='Random chance')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC Curve for Injured Animal Identification')
-    plt.legend()
-    plt.show(block=False)
+    fpr_test, tpr_test, thresholds = roc_curve(y_test, y_proba_test)
+    roc_auc_test = auc(fpr_test, tpr_test)
+    if show_roc:
+        # Plot the ROC curve
+        plt.figure()
+        plt.plot(fpr_test, tpr_test, label='ROC curve test set(area = %0.2f)' % roc_auc_test)
+        plt.plot(fpr_train, tpr_train, label='ROC curve train set (area=%.2f)' % roc_auc_train)
+        plt.plot([0, 1], [0, 1], 'k--', label='Random chance')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve for Injured Animal Identification')
+        plt.legend()
+        plt.show(block=False)
+    return roc_auc_train, roc_auc_test
 
 def plot_confusion_matrix(y, y_pred, titlestr):
     conf_matrix = confusion_matrix(y, y_pred)
@@ -136,7 +138,7 @@ def plot_confusion_matrix(y, y_pred, titlestr):
     plt.title(f'Confusion Matrix {titlestr} Data')
     plt.show(block=False)
 
-def print_most_important_features(coef, X_train):
+def return_most_important_features(coef, X_train):
     # Find the largest logistic regression coefficients
     abs_coef = np.abs(coef)
 
@@ -146,7 +148,11 @@ def print_most_important_features(coef, X_train):
     # Count number of features with non zero coefficients
     non_zero_count = np.count_nonzero(abs_coef)
 
+    important_features = []
     # Print the most important features
     for i in range(non_zero_count):
         feature_idx = sorted_indices[i]
         print(f"Feature importance #{i+1} Column #{feature_idx} {X_train.columns[feature_idx]}: Coefficient {coef[feature_idx]}")
+        important_features.append(X_train.columns[feature_idx])
+
+    return important_features
