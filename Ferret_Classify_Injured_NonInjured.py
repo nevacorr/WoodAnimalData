@@ -20,12 +20,13 @@ import seaborn as sns
 from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_corr_features
 from data_cleaning_and_exploration import calculate_roc_auc_and_plot, plot_confusion_matrix
 from data_cleaning_and_exploration import return_most_important_features
+from collections import Counter
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 10
+num_tt_splits = 15
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
@@ -64,10 +65,6 @@ new_corr = ferret_cv[final_features]
 new_corr = new_corr.drop(columns=['Sex'])
 new_lower_tri_corr = calc_corr(new_corr, plotheatmap=0)
 
-###################################################################################################
-########################### SPLIT DATA INTO TRAIN TEST AND NORMALIZE ##############################
-###################################################################################################
-
 # Make a dataframe of unique subjects with ID and Sex
 split_df = ferret_cv.groupby('ID').mean()
 split_df = split_df.loc[:,['Sex', target]]
@@ -83,17 +80,44 @@ y = split_df[['ID', target]].copy()
 
 stratify_by = pd.concat([X['Sex'], y[target]], axis=1)
 
-# r = X['Sex'].corr(y[target])
+############################## BUILD PIPELINE  ################################
 
+# create column transformer for standard scalar
+# choose all columns except for the first column (sex)
+columns_to_scale = final_features.copy()
+columns_to_scale.remove('Sex')
+transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), columns_to_scale)],
+                                remainder='passthrough')
+
+# Create the pipeline for logistic regression (use for total gross score which was made binary)
+pipe_logreg = Pipeline([
+    ('t', transformer),
+    ('pca', PCA()),
+    ('logreg', LogisticRegression(solver='liblinear'))
+])
+
+# Define parameter grid
+param_grid = {
+    'pca__n_components': [5, 10, 20],
+    'logreg__penalty': ['l1', 'l2'],
+    'logreg__C': np.logspace(-1, 1, 10)
+}
+
+grid_search = GridSearchCV(pipe_logreg, param_grid, cv=5, scoring='roc_auc', n_jobs=-1)
+
+# Initialize summary variables
 important_feature_dict = {}
 roc_auc_train = []
 roc_auc_test = []
+best_parameters_list = []
 
+# Perform train test split iteratively with different random_state every time
 for i in range(num_tt_splits):
 
-    # X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=None)
+    # Perform train test split of unique subjects
     X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=None)
 
+    # Assign all data from subjects to train or test X and y dataframes
     X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
     X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), final_features]
     y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), ['ID'] + [target]]
@@ -112,31 +136,7 @@ for i in range(num_tt_splits):
     y_train.drop(columns=['ID'], inplace=True)
     y_test.drop(columns=['ID'], inplace=True)
 
-    # create column transformer for standard scalar
-    # choose all columns except for the first column (sex)
-    columns_to_scale = final_features.copy()
-    columns_to_scale.remove('Sex')
-    transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), columns_to_scale)],
-                                    remainder='passthrough')
-
-    ###################################################################################################
     ########################### TRAIN AND FIT LOGISTIC REGRESSION #############################
-    ###################################################################################################
-
-    # Create the pipeline for logistic regression (use for total gross score which was made binary)
-    pipe_logreg = Pipeline([
-        ('t', transformer),
-        ('pca', PCA(n_components=36)),
-        ('logreg', LogisticRegression(solver='liblinear', random_state=42))
-    ])
-
-    # Define parameter grid
-    param_grid = {
-        'logreg__penalty': ['l1', 'l2'],
-        'logreg__C': np.logspace(-3, 1, 10)
-    }
-
-    grid_search = GridSearchCV(pipe_logreg, param_grid, cv=5, scoring='roc_auc', n_jobs=-1)
 
     # Fit the model to the training data
     grid_search.fit(X_train, y_train.values.ravel())
@@ -144,12 +144,9 @@ for i in range(num_tt_splits):
     # Get the best parameters and best model
     best_params = grid_search.best_params_
     best_model = grid_search.best_estimator_
+    best_parameters_list.append(tuple(best_params.items()))
 
-    print("Best Parameters:", best_params)
-
-    ###################################################################################################
     ########################## MAKE CLASS PREDICTIONS AND EVALUATE PERFORMANCE ########################
-    ###################################################################################################
 
     # predict values for the train and test data
     y_hat_train = best_model.predict(X_train)
@@ -183,19 +180,18 @@ for i in range(num_tt_splits):
     y_train_groupby_sorted.drop(columns=['ID'], inplace=True)
     y_test_groupby_sorted.drop(columns=['ID'], inplace=True)
 
+    # Caclulate AUC
     auc_roc_train = roc_auc_score(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
     auc_roc_test = roc_auc_score(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
+
+    print(f'Split {i+1}/{num_tt_splits} AUC train: {auc_roc_train:.2f} AUC test: {auc_roc_test:.2f} Best Parameters:{best_params}')
+
+    roc_auc_train.append(auc_roc_train)
+    roc_auc_test.append(auc_roc_test)
 
     # Assign categories to the train and test predictions based on average probabilities
     y_hat_train_final_cat = y_proba_train_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
     y_hat_test_final_cat = y_proba_test_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
-
-    # Compute AUC ROC and plot ROC curve for train and test set
-    auc_train, auc_test = calculate_roc_auc_and_plot(y_train_groupby_sorted.loc[:, target],
-                                              y_test_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'],
-                                              y_proba_test_mean.loc[:, 'prob1'], show_roc_curve)
-    roc_auc_train.append(auc_train)
-    roc_auc_test.append(auc_test)
 
     if show_confusion_matrices:
         # Plot confusion matrices
@@ -205,15 +201,39 @@ for i in range(num_tt_splits):
     # Return logistic regression coefficients
     logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
 
-#     # Print features with nonzero logistic regression coefficients
-#     important_feature_dict[i] = return_most_important_features(logreg_coef, X_train)
-#
-# important_features_df = pd.DataFrame({key: pd.Series(value) for key, value in important_feature_dict.items()}).transpose()
-#
-# unique_values_counts = important_features_df.iloc[:, 0:5].stack().value_counts()
-# unique_values_counts.sort_values(ascending=False, inplace=True)
-#
 avg_auc_train = sum(roc_auc_train)/len(roc_auc_train)
 avg_auc_test = sum(roc_auc_test)/len(roc_auc_test)
+
+param_counter = Counter(best_parameters_list)
+
+most_common_params, frequency = param_counter.most_common(1)[0]
+
+most_common_params_dict = dict(most_common_params)
+
+print(f'Most common parameter combination: {most_common_params_dict} frequency {frequency}')
+
+# best_params_df = pd.DataFrame(best_parameters_list)
+#
+# # Determine the best hyperparameters
+# best_penalty = best_params_df['logreg__penalty'].mode()[0]
+# best_C = best_params_df['logreg__C'].mode()[0]
+# best_n_components = best_params_df['pca__n_components'].mode()[0]
+
+# print(f"Best penalty: {best_penalty}")
+# print(f"Best C: {best_C}")
+# print(f"Best n_components: {best_n_components}")
+# print(f"Average test ROC AUC: {avg_auc_test}")
+
+# Final model with chosen hyperparameters
+# final_pipe_logreg_model = Pipeline([
+#     ('t', transformer),
+#     ('pca', PCA(n_components=best_n_components)),
+#     ('logreg', LogisticRegression(penalty=best_penalty, C=best_C, solver='liblinear'))
+# ])
+
+
+# Fit the final model on the entire dataset
+# Make sure data is transformed first
+# final_model.fit(X, y)
 
 mystop=1
