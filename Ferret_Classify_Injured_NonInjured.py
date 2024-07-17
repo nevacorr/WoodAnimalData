@@ -108,13 +108,12 @@ transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), column
                                 remainder='passthrough')
 
 ###################################################################################################
-########################### TRAIN AND FIT PCA AND LOGISTIC REGRESSION #############################
+########################### TRAIN AND FIT LOGISTIC REGRESSION #############################
 ###################################################################################################
 
 # Create the pipeline for logistic regression (use for total gross score which was made binary)
 pipe_logreg = Pipeline([
     ('t', transformer),
-    # ('pca', PCA(n_components=32)),
     ('logreg', LogisticRegression(solver='liblinear', random_state=42))
 ])
 
@@ -134,10 +133,6 @@ best_params = grid_search.best_params_
 best_model = grid_search.best_estimator_
 
 print("Best Parameters:", best_params)
-
-# explained_variance = best_model.named_steps['pca'].explained_variance_ratio_
-# cumulative_explained_variance = np.cumsum(explained_variance)
-# n_components_95 = np.argmax(cumulative_explained_variance >= 0.95) + 1
 
 ###################################################################################################
 ########################## MAKE CLASS PREDICTIONS AND EVALUATE PERFORMANCE ########################
@@ -190,35 +185,22 @@ calculate_roc_auc_and_plot(y_train_groupby_sorted.loc[:, target], y_test_groupby
 plot_confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat, 'Train')
 plot_confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat, 'Test')
 
-# Extract PCA components and coefficients
-pca_components = best_model.named_steps['pca'].components_  # Principal axes in feature space
 logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
 
 # Find the largest logistic regression coefficients
 abs_logreg_coef = np.abs(logreg_coef)
 
-# Get indices of components sorted by absolute coefficient (descending order)
+# Get indices of feature sorted by absolute coefficient (descending order)
 sorted_indices = np.argsort(abs_logreg_coef)[::-1]
 
-# Print or plot the most important components
-n_components_to_show = 5  # Adjust as needed
-for i in range(n_components_to_show):
-    component_idx = sorted_indices[i]
-    print(f"PCA Component {component_idx + 1}: Coefficient {logreg_coef[component_idx]}")
+# Count number of features with non zero coefficients
+non_zero_count = np.count_nonzero(abs_logreg_coef)
+
+# Print the most important features
+for i in range(non_zero_count):
+    feature_idx = sorted_indices[i]
+    print(f"Feature importance #{i+1} Column #{feature_idx} {X_train.columns[feature_idx]}: Coefficient {logreg_coef[feature_idx]}")
 
 original_feature_names = X_train.columns
-
-# Get the indices of the top features contributing to each principal component
-top_features_indices = np.argsort(np.abs(pca_components), axis=1)[:, ::-1]
-
-# Print or store the top features for each principal component
-n_top_features = 5  # Number of top features to display, adjust as needed
-for i in range(5):
-# for i in range(pca_components.shape[0]):  # Loop through each principal component
-    print(f"Principal Component {i + 1}:")
-    for j in range(n_top_features):  # Display the top features
-        feature_idx = top_features_indices[i, j]
-        print(f"- Feature: {original_feature_names[feature_idx]} (Loading: {pca_components[i, feature_idx]:.3f})")
-    print()
 
 mystop=1
