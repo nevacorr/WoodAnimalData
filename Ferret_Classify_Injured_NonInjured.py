@@ -19,6 +19,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_corr_features
 from data_cleaning_and_exploration import calculate_roc_auc_and_plot, plot_confusion_matrix
+from data_cleaning_and_exploration import print_most_important_features
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
@@ -185,22 +186,10 @@ calculate_roc_auc_and_plot(y_train_groupby_sorted.loc[:, target], y_test_groupby
 plot_confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat, 'Train')
 plot_confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat, 'Test')
 
+# Return logistic regression coefficients
 logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
 
-# Find the largest logistic regression coefficients
-abs_logreg_coef = np.abs(logreg_coef)
-
-# Get indices of feature sorted by absolute coefficient (descending order)
-sorted_indices = np.argsort(abs_logreg_coef)[::-1]
-
-# Count number of features with non zero coefficients
-non_zero_count = np.count_nonzero(abs_logreg_coef)
-
-# Print the most important features
-for i in range(non_zero_count):
-    feature_idx = sorted_indices[i]
-    print(f"Feature importance #{i+1} Column #{feature_idx} {X_train.columns[feature_idx]}: Coefficient {logreg_coef[feature_idx]}")
-
-original_feature_names = X_train.columns
+# Print features with nonzero logistic regression coefficients
+print_most_important_features(logreg_coef, X_train)
 
 mystop=1

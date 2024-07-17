@@ -135,3 +135,18 @@ def plot_confusion_matrix(y, y_pred, titlestr):
     plt.ylabel('True labels')
     plt.title(f'Confusion Matrix {titlestr} Data')
     plt.show(block=False)
+
+def print_most_important_features(coef, X_train):
+    # Find the largest logistic regression coefficients
+    abs_coef = np.abs(coef)
+
+    # Get indices of feature sorted by absolute coefficient (descending order)
+    sorted_indices = np.argsort(abs_coef)[::-1]
+
+    # Count number of features with non zero coefficients
+    non_zero_count = np.count_nonzero(abs_coef)
+
+    # Print the most important features
+    for i in range(non_zero_count):
+        feature_idx = sorted_indices[i]
+        print(f"Feature importance #{i+1} Column #{feature_idx} {X_train.columns[feature_idx]}: Coefficient {coef[feature_idx]}")
