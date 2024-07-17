@@ -18,15 +18,12 @@ import sys
 from matplotlib import pyplot as plt
 import seaborn as sns
 from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_corr_features
+from data_cleaning_and_exploration import calculate_roc_auc_and_plot, plot_confusion_matrix
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
-# Choose group
-group_to_test = 'Control and Vehicle'
+# Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-
-# Set number of splits for stratified k fold cross validation
-n_splits = 5
 
 # Load ferret data with multiple run information
 ferret_orig = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
@@ -50,16 +47,16 @@ feature_columns = [x for x in all_columns if ((x not in subj_info_columns) and (
 # Calculate lower triangle correlation matrix
 ferret_to_corr = ferret_cv[feature_columns]
 ferret_to_corr = ferret_to_corr.drop(columns=['Sex'])
-lower_tri_corr = calc_corr(ferret_to_corr, plotheatmap=1)
+lower_tri_corr = calc_corr(ferret_to_corr, plotheatmap=0)
 
 # Find and remove highly correlated features
-final_features, final_columns = remove_highly_corr_features(ferret_cv, lower_tri_corr, rthreshold=0.7)
+final_features, final_columns = remove_highly_corr_features(ferret_cv, feature_columns, lower_tri_corr, rthreshold=0.7)
 ferret_cv = ferret_cv[final_columns].copy()
 
-# Plot new correlation matrix with highly correlated features removed
+# Calculate new lower triangle correlation matrix with highly correlated features removed
 new_corr = ferret_cv[final_features]
 new_corr = new_corr.drop(columns=['Sex'])
-calc_corr(new_corr, plotheatmap=1)
+new_lower_tri_corr = calc_corr(new_corr, plotheatmap=0)
 
 ###################################################################################################
 ########################### SPLIT DATA INTO TRAIN TEST AND NORMALIZE ##############################
@@ -80,7 +77,9 @@ y = split_df[['ID', target]].copy()
 
 stratify_by = pd.concat([X['Sex'], y[target]], axis=1)
 
-X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=42)
+# r = X['Sex'].corr(y[target])
+
+X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=y[target], test_size=0.2, random_state=1)
 # X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=42)
 
 X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
@@ -115,7 +114,7 @@ transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), column
 # Create the pipeline for logistic regression (use for total gross score which was made binary)
 pipe_logreg = Pipeline([
     ('t', transformer),
-    ('pca', PCA(n_components=32)),
+    # ('pca', PCA(n_components=32)),
     ('logreg', LogisticRegression(solver='liblinear', random_state=42))
 ])
 
@@ -136,9 +135,9 @@ best_model = grid_search.best_estimator_
 
 print("Best Parameters:", best_params)
 
-explained_variance = best_model.named_steps['pca'].explained_variance_ratio_
-cumulative_explained_variance = np.cumsum(explained_variance)
-n_components_95 = np.argmax(cumulative_explained_variance >= 0.95) + 1
+# explained_variance = best_model.named_steps['pca'].explained_variance_ratio_
+# cumulative_explained_variance = np.cumsum(explained_variance)
+# n_components_95 = np.argmax(cumulative_explained_variance >= 0.95) + 1
 
 ###################################################################################################
 ########################## MAKE CLASS PREDICTIONS AND EVALUATE PERFORMANCE ########################
@@ -179,46 +178,17 @@ y_test_groupby_sorted.drop(columns=['ID'], inplace=True)
 auc_roc_train = roc_auc_score(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
 auc_roc_test = roc_auc_score(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
 
+# Assign categories to the train and test predictions based on average probabilities
 y_hat_train_final_cat = y_proba_train_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
 y_hat_test_final_cat = y_proba_test_mean['prob1'].apply(lambda x: 1 if x > 0.5 else 0)
 
-# Calculate ROC curve
-fpr_train, tpr_train, thresholds_train = roc_curve(y_train_groupby_sorted.loc[:, target], y_proba_train_mean.loc[:, 'prob1'])
-roc_auc_train = auc(fpr_train, tpr_train)
-fpr, tpr, thresholds = roc_curve(y_test_groupby_sorted.loc[:, target], y_proba_test_mean.loc[:, 'prob1'])
-roc_auc = auc(fpr, tpr)
-# Plot the ROC curve
-plt.figure()
-plt.plot(fpr, tpr, label='ROC curve test set(area = %0.2f)' % roc_auc)
-plt.plot(fpr_train, tpr_train, label='ROC curve train set (area=%.2f)' % roc_auc_train)
-plt.plot([0, 1], [0, 1], 'k--', label='Random chance')
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('ROC Curve for Injured Animal Identification')
-plt.legend()
-plt.show(block=False)
+# Compute AUC ROC and plot ROC curve for train and test set
+calculate_roc_auc_and_plot(y_train_groupby_sorted.loc[:, target], y_test_groupby_sorted.loc[:, target],
+                           y_proba_train_mean.loc[:, 'prob1'], y_proba_test_mean.loc[:, 'prob1'])
 
-# Plot confusion matrix
-from sklearn.metrics import confusion_matrix
-conf_matrix = confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat)
-plt.figure(figsize=(8, 6))
-sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
-plt.xlabel('Predicted labels')
-plt.ylabel('True labels')
-plt.title('Confusion Matrix Train Data')
-plt.show(block=False)
-
-# Plot confusion matrix
-from sklearn.metrics import confusion_matrix
-conf_matrix = confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat)
-plt.figure(figsize=(8, 6))
-sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
-plt.xlabel('Predicted labels')
-plt.ylabel('True labels')
-plt.title('Confusion Matrix Test Data')
-plt.show()
+# Plot confusion matrices
+plot_confusion_matrix(y_train_groupby_sorted, y_hat_train_final_cat, 'Train')
+plot_confusion_matrix(y_test_groupby_sorted, y_hat_test_final_cat, 'Test')
 
 # Extract PCA components and coefficients
 pca_components = best_model.named_steps['pca'].components_  # Principal axes in feature space

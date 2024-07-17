@@ -1,5 +1,12 @@
-def clean_data(ferret):
-    ferret_orig = ferret.copy()
+
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+import seaborn as sns
+from sklearn.metrics import auc, roc_curve, confusion_matrix
+
+def clean_data(ferret_orig):
+    ferret = ferret_orig.copy()
 
     # Brain regional size measurements
     columns_brain_volumes = ['total volume (cm^3)', 'cerebrum+brainstem (cm^3)', 'cerebellum (cm^3)', '% cerebellum',
@@ -87,7 +94,7 @@ def calc_corr(df, plotheatmap=0):
 
     return lower_tri_corr
 
-def remove_highly_corr_features(df, lower_tri_corr,  rthreshold):
+def remove_highly_corr_features(df, feature_columns, lower_tri_corr,  rthreshold):
 # Find features that are not highly correlated with other features
     s=lower_tri_corr.unstack().dropna()
     s=s.reset_index()
@@ -99,3 +106,32 @@ def remove_highly_corr_features(df, lower_tri_corr,  rthreshold):
     final_features = [f for f in feature_columns if f not in corr_features_to_remove]
     final_columns = [col for col in df if col not in corr_features_to_remove]
     return final_features, final_columns
+
+def calculate_roc_auc_and_plot(y_train, y_test, y_proba_train, y_proba_test):
+
+    # Calculate ROC curve
+    fpr_train, tpr_train, thresholds_train = roc_curve(y_train, y_proba_train)
+    roc_auc_train = auc(fpr_train, tpr_train)
+    fpr, tpr, thresholds = roc_curve(y_test, y_proba_test)
+    roc_auc = auc(fpr, tpr)
+    # Plot the ROC curve
+    plt.figure()
+    plt.plot(fpr, tpr, label='ROC curve test set(area = %0.2f)' % roc_auc)
+    plt.plot(fpr_train, tpr_train, label='ROC curve train set (area=%.2f)' % roc_auc_train)
+    plt.plot([0, 1], [0, 1], 'k--', label='Random chance')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve for Injured Animal Identification')
+    plt.legend()
+    plt.show(block=False)
+
+def plot_confusion_matrix(y, y_pred, titlestr):
+    conf_matrix = confusion_matrix(y, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g')
+    plt.xlabel('Predicted labels')
+    plt.ylabel('True labels')
+    plt.title(f'Confusion Matrix {titlestr} Data')
+    plt.show(block=False)
