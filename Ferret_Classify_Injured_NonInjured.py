@@ -37,12 +37,18 @@ ferret_orig = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics wi
 # Clean data
 ferret = clean_data(ferret_orig)
 
+# Class coding:
+# 0: Control
+# 1: Vehicle
+# 2: Epo
+# 3: TH
+
 if plot_distributions:
     # Plot distributions of features
     plot_feature_distributions(ferret, ferret.columns)
 
 # Remove all cases where group is not control or vehicle
-ferret_cv = ferret[ferret['Group'].isin([1,2])]
+ferret_cv = ferret[ferret['Group'].isin([0,1])]
 ferret_cv.reset_index(inplace=True, drop=True)
 
 # Define feature columns
@@ -211,6 +217,7 @@ most_common_params, frequency = param_counter.most_common(1)[0]
 most_common_params_dict = dict(most_common_params)
 
 print(f'Most common parameter combination: {most_common_params_dict} frequency {frequency}/{num_tt_splits}')
+print(f'Avg AUC_ROC_train: {avg_auc_train}, Avg AUC_ROC_test: {avg_auc_test}')
 
 # Final model with chosen hyperparameters
 final_pipe_logreg_model = Pipeline([
