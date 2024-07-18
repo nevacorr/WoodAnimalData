@@ -26,7 +26,7 @@ from collections import Counter
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 15
+num_tt_splits = 5
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
@@ -98,9 +98,9 @@ pipe_logreg = Pipeline([
 
 # Define parameter grid
 param_grid = {
-    'pca__n_components': [5, 10, 20],
+    'pca__n_components': range(5, 16),  # 20 or more components leads to overfitting of the data (auc_roc >0.9 for train set)
     'logreg__penalty': ['l1', 'l2'],
-    'logreg__C': np.logspace(-1, 1, 10)
+    'logreg__C': np.logspace(-1, 1, 10)  # lower C results in auc_roc =0.5 for train and test
 }
 
 grid_search = GridSearchCV(pipe_logreg, param_grid, cv=5, scoring='roc_auc', n_jobs=-1)
@@ -210,30 +210,24 @@ most_common_params, frequency = param_counter.most_common(1)[0]
 
 most_common_params_dict = dict(most_common_params)
 
-print(f'Most common parameter combination: {most_common_params_dict} frequency {frequency}')
-
-# best_params_df = pd.DataFrame(best_parameters_list)
-#
-# # Determine the best hyperparameters
-# best_penalty = best_params_df['logreg__penalty'].mode()[0]
-# best_C = best_params_df['logreg__C'].mode()[0]
-# best_n_components = best_params_df['pca__n_components'].mode()[0]
-
-# print(f"Best penalty: {best_penalty}")
-# print(f"Best C: {best_C}")
-# print(f"Best n_components: {best_n_components}")
-# print(f"Average test ROC AUC: {avg_auc_test}")
+print(f'Most common parameter combination: {most_common_params_dict} frequency {frequency}/{num_tt_splits}')
 
 # Final model with chosen hyperparameters
-# final_pipe_logreg_model = Pipeline([
-#     ('t', transformer),
-#     ('pca', PCA(n_components=best_n_components)),
-#     ('logreg', LogisticRegression(penalty=best_penalty, C=best_C, solver='liblinear'))
-# ])
-
+final_pipe_logreg_model = Pipeline([
+    ('t', transformer),
+    ('pca', PCA(n_components=most_common_params_dict['pca__n_components'])),
+    ('logreg', LogisticRegression(penalty=most_common_params_dict['logreg__penalty'],
+                                  C=most_common_params_dict['logreg__C'], solver='liblinear'))
+])
 
 # Fit the final model on the entire dataset
 # Make sure data is transformed first
-# final_model.fit(X, y)
+final_pipe_logreg_model.fit(ferret_cv[final_features], ferret_cv[target].values.ravel())
+
+# Evaluate performance on TH animals
+
+
+
+
 
 mystop=1
