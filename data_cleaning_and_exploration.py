@@ -89,6 +89,11 @@ def calc_corr(df, plotheatmap=0):
         sns.heatmap(lower_tri_corr, vmin=-1, vmax=1, xticklabels=lower_tri_corr.columns,
                     yticklabels=lower_tri_corr.columns,
                     cmap='coolwarm')
+
+        # Adjust font size for the tick labels
+        plt.tick_params(axis='x', labelsize=8)
+        plt.tick_params(axis='y', labelsize=8)
+
         plt.tight_layout()
         plt.show(block=False)
 
