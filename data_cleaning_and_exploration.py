@@ -211,3 +211,26 @@ def return_most_important_pcs_mapped_to_features(splitno, best_model, feature_na
         most_important_features_for_top_5_pcs_df['pcnum'] = most_important_features_for_top_5_pcs_df['pcnum'].astype(int)
 
     return most_important_features_for_top_5_pcs_df
+
+def plot_most_important_features(feature_df):
+    # Count the frequency of each feature
+    feature_counts = feature_df['feature'].value_counts()
+
+    # Create a horizontal bar plot
+    plt.figure(figsize=(10, 6))
+    ax = feature_counts.plot(kind='barh', color='skyblue')
+
+    # Add labels and title
+    plt.xlabel('Count')
+    plt.ylabel('Feature Name')
+    plt.title('Frequency of Features with Highest Contribution to Model')
+
+    # Add annotations
+    for i, (count, feature) in enumerate(zip(feature_counts, feature_counts.index)):
+        ax.text(count + 0.2, i, str(count), va='center')
+
+    # Display the plot
+    plt.gca().invert_yaxis()  # To display the highest counts at the top
+
+    plt.tight_layout()
+    plt.show()

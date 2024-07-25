@@ -21,12 +21,13 @@ from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_c
 from data_cleaning_and_exploration import calculate_roc_auc_and_plot, plot_confusion_matrix
 from data_cleaning_and_exploration import return_most_important_features, return_most_important_pcs_mapped_to_features
 from collections import Counter
+from data_cleaning_and_exploration import plot_most_important_features
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 30
+num_tt_splits = 100
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
@@ -96,7 +97,7 @@ pipe_logreg = Pipeline([
 
 # Define parameter grid
 param_grid = {
-    'pca__n_components': range(5, 20, 5),  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
+    'pca__n_components': range(5, 35, 10),  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
     'logreg__penalty': ['l1', 'l2'],
     'logreg__C': np.logspace(-3, 1, 5)
 }
@@ -217,6 +218,7 @@ most_important_feature_allsplits_df = most_important_feature_allsplits_df.loc[(m
                                         most_common_params_dict['logreg__penalty']) & (most_important_feature_allsplits_df['ncomponents']==
                                         float(most_common_params_dict['pca__n_components']))]
 
+most_important_feature_allsplits_df.reset_index(drop=True, inplace=True)
 
 # Save parameters and scores to dataframe to find average auc_roc for most common parameters
 data = {
@@ -291,5 +293,6 @@ th_groupby_df.reset_index(inplace=True, drop=True)
 auc_roc_th = roc_auc_score(th_groupby_df.loc[:, target], y_proba_th_mean.loc[:, 'prob1'])
 print(f'AUC ROC for TH data is {auc_roc_th}')
 
+plot_most_important_features(most_important_feature_allsplits_df)
 
 mystop=1
