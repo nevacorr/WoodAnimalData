@@ -161,3 +161,53 @@ def return_most_important_features(coef, X_train):
         important_features.append(X_train.columns[feature_idx])
 
     return important_features
+
+def return_most_important_pcs_mapped_to_features(splitno, best_model, feature_names, best_params):
+
+    # Get the fitted PCA and Logistic Regression models
+    fitted_pca = best_model.named_steps['pca']
+    fitted_logreg = best_model.named_steps['logreg']
+
+    # Get the coefficients of the logistic regression model
+    coefficients = fitted_logreg.coef_[0]
+
+    # Identify the most important PC based on the absolute values of the coefficients
+    important_pc_indices = np.argsort(np.abs(coefficients))[::-1]
+
+    # Determien 5 most important PCs
+    important_pc_indices = important_pc_indices[0:5]
+
+    # Map the important PCs back to the original features
+    pca_components = fitted_pca.components_
+
+    # Compute most important features for top 5 PCs
+    most_important_features_for_top_5_pcs_df = pd.DataFrame(columns=['split', 'pcnum', 'feature'])
+
+    # Ensure columns 'split' and 'pcnum' are initialized with an integer data type
+    most_important_features_for_top_5_pcs_df['split'] = most_important_features_for_top_5_pcs_df['split'].astype(int)
+    most_important_features_for_top_5_pcs_df['pcnum'] = most_important_features_for_top_5_pcs_df['pcnum'].astype(int)
+
+    # print('Principal Component Loadings')
+    for i, pc_idx in enumerate(important_pc_indices):
+        # print(f'Principal Component {i+1} (PC{pc_idx+1}):')
+        # for feature_idx, loading in enumerate(pca_components[pc_idx]):
+        #     print(f' {feature_names[feature_idx]}: {loading:.4f}')
+
+        # Print the most important feature for this PC
+        important_features_indices = np.argsort(np.abs(pca_components[pc_idx]))[::-1]
+        # print('Most important original features for this PC:')
+        most_important_feature = feature_names[important_features_indices[0]]
+        # print(f'PC{i+1} most important feature; {most_important_feature}')
+
+        most_important_features_for_top_5_pcs_df.loc[i, 'split'] = splitno
+        most_important_features_for_top_5_pcs_df.loc[i, 'pcnum'] = (i+1)
+        most_important_features_for_top_5_pcs_df.loc[i, 'feature'] = most_important_feature
+        most_important_features_for_top_5_pcs_df.loc[i, 'C'] = best_params['logreg__C']
+        most_important_features_for_top_5_pcs_df.loc[i, 'penalty'] = best_params['logreg__penalty']
+        most_important_features_for_top_5_pcs_df.loc[i, 'ncomponents'] = best_params['pca__n_components']
+
+        # Convert the 'split' and 'pcnum' columns to integers explicitly
+        most_important_features_for_top_5_pcs_df['split'] = most_important_features_for_top_5_pcs_df['split'].astype(int)
+        most_important_features_for_top_5_pcs_df['pcnum'] = most_important_features_for_top_5_pcs_df['pcnum'].astype(int)
+
+    return most_important_features_for_top_5_pcs_df

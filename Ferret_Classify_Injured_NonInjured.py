@@ -19,14 +19,14 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from data_cleaning_and_exploration import clean_data, calc_corr, remove_highly_corr_features
 from data_cleaning_and_exploration import calculate_roc_auc_and_plot, plot_confusion_matrix
-from data_cleaning_and_exploration import return_most_important_features
+from data_cleaning_and_exploration import return_most_important_features, return_most_important_pcs_mapped_to_features
 from collections import Counter
 
 # Choose target variable
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 10
+num_tt_splits = 30
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
@@ -58,6 +58,10 @@ ferret_to_corr = ferret_cv[feature_columns]
 ferret_to_corr = ferret_to_corr.drop(columns=['Sex'])
 lower_tri_corr = calc_corr(ferret_to_corr, plotheatmap=0)
 
+# Find and remove highly correlated features
+final_features, final_columns = remove_highly_corr_features(ferret_cv, feature_columns, lower_tri_corr, rthreshold=0.7)
+ferret_cv = ferret_cv[final_columns].copy()
+
 # Make a dataframe of unique subjects with ID and Sex
 split_df = ferret_cv.groupby('ID').mean()
 split_df = split_df.loc[:,['Sex', target]]
@@ -75,9 +79,10 @@ stratify_by = pd.concat([X['Sex'], y[target]], axis=1)
 
 ############################## BUILD PIPELINE  ################################
 
-# create column transformer for standard scalar
-# choose all columns except for the first column (sex)
-columns_to_scale = feature_columns.copy()
+# Create column transformer for standard scalar
+# Choose all columns except for the first column (sex) to scale
+# columns_to_scale = feature_columns.copy()
+columns_to_scale = final_features
 columns_to_scale.remove('Sex')
 transformer = ColumnTransformer(transformers=[('scale', StandardScaler(), columns_to_scale)],
                                 remainder='passthrough')
@@ -91,7 +96,7 @@ pipe_logreg = Pipeline([
 
 # Define parameter grid
 param_grid = {
-    'pca__n_components': range(5, 25, 5),  # 25 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
+    'pca__n_components': range(5, 20, 5),  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
     'logreg__penalty': ['l1', 'l2'],
     'logreg__C': np.logspace(-3, 1, 5)
 }
@@ -103,6 +108,7 @@ important_feature_dict = {}
 roc_auc_train = []
 roc_auc_test = []
 best_parameters_list = []
+most_important_feature_allsplits_df = pd.DataFrame()
 
 # Perform train test split iteratively with different random_state every time
 for i in range(num_tt_splits):
@@ -111,8 +117,8 @@ for i in range(num_tt_splits):
     X_train_groupby, X_test_groupby, y_train_groupby, y_test_groupby = train_test_split(X, y, stratify=stratify_by, test_size=0.2, random_state=None)
 
     # Assign all data from subjects to train or test X and y dataframes
-    X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), feature_columns]
-    X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), feature_columns]
+    X_train = ferret_cv.loc[ferret_cv['ID'].isin(X_train_groupby['ID']), final_features]
+    X_test = ferret_cv.loc[ferret_cv['ID'].isin(X_test_groupby['ID']), final_features]
     y_train = ferret_cv.loc[ferret_cv['ID'].isin(y_train_groupby['ID']), ['ID'] + [target]]
     y_test = ferret_cv.loc[ferret_cv['ID'].isin(y_test_groupby['ID']), ['ID'] + [target]]
 
@@ -194,11 +200,23 @@ for i in range(num_tt_splits):
     # Return logistic regression coefficients
     logreg_coef = best_model.named_steps['logreg'].coef_[0]  # Coefficients assigned by Logistic Regression
 
+    most_important_feature_df = return_most_important_pcs_mapped_to_features(i, best_model, final_features, best_params)
+
+    most_important_feature_allsplits_df = pd.concat([most_important_feature_allsplits_df, most_important_feature_df],
+                                                    ignore_index=True)
+
 param_counter = Counter(best_parameters_list)
 
 most_common_params, frequency = param_counter.most_common(1)[0]
 
 most_common_params_dict = dict(most_common_params)
+
+# Keep only most important features for splits that have these most common parameters
+most_important_feature_allsplits_df = most_important_feature_allsplits_df.loc[(most_important_feature_allsplits_df['C']==
+                                        most_common_params_dict['logreg__C']) & (most_important_feature_allsplits_df['penalty']==
+                                        most_common_params_dict['logreg__penalty']) & (most_important_feature_allsplits_df['ncomponents']==
+                                        float(most_common_params_dict['pca__n_components']))]
+
 
 # Save parameters and scores to dataframe to find average auc_roc for most common parameters
 data = {
@@ -235,17 +253,17 @@ final_pipe_logreg_model = Pipeline([
                                   C=most_common_params_dict['logreg__C'], solver='liblinear'))
 ])
 
-# Fit the final model on the entire dataset
+# Fit the final model on the entire dataset of control and vehicle animals
 # Make sure data is transformed first
-final_pipe_logreg_model.fit(ferret_cv[feature_columns], ferret_cv[target].values.ravel())
+final_pipe_logreg_model.fit(ferret_cv[final_features], ferret_cv[target].values.ravel())
 
 # Evaluate performance on TH animals
 # Find all cases where animal is TH
 ferret_th = ferret[ferret['Group'].isin([3])]
 ferret_th.reset_index(inplace=True, drop=True)
 y_th = ferret_th[target]
-y_hat_th = final_pipe_logreg_model.predict(ferret_th[feature_columns])
-y_proba_th = final_pipe_logreg_model.predict_proba(ferret_th[feature_columns])
+y_hat_th = final_pipe_logreg_model.predict(ferret_th[final_features])
+y_proba_th = final_pipe_logreg_model.predict_proba(ferret_th[final_features])
 
 th_IDs = ferret_th['ID']
 
@@ -269,8 +287,7 @@ th_groupby_df = th_groupby_df.reset_index()
 th_groupby_df = th_groupby_df[['ID', target]]
 th_groupby_df.reset_index(inplace=True, drop=True)
 
-
-# Caclulate AUC
+# Calculate AUC
 auc_roc_th = roc_auc_score(th_groupby_df.loc[:, target], y_proba_th_mean.loc[:, 'prob1'])
 print(f'AUC ROC for TH data is {auc_roc_th}')
 
