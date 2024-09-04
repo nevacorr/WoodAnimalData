@@ -27,7 +27,7 @@ from data_cleaning_and_exploration import plot_most_important_features
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 100
+num_tt_splits = 1000
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
@@ -95,11 +95,17 @@ pipe_logreg = Pipeline([
     ('logreg', LogisticRegression(solver='liblinear'))
 ])
 
-# Define parameter grid
+# # Define parameter grid
+# param_grid = {
+#     'pca__n_components': range(5, 35, 10),  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
+#     'logreg__penalty': ['l1', 'l2'],
+#     'logreg__C': np.logspace(-3, 1, 5)
+# }
+
 param_grid = {
-    'pca__n_components': range(5, 35, 10),  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
-    'logreg__penalty': ['l1', 'l2'],
-    'logreg__C': np.logspace(-3, 1, 5)
+    'pca__n_components': [20],  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
+    'logreg__penalty': ['l2'],
+    'logreg__C': [0.001]
 }
 
 grid_search = GridSearchCV(pipe_logreg, param_grid, cv=5, scoring='roc_auc', n_jobs=-1)
