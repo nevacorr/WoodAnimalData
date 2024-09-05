@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from sklearn.metrics import auc, roc_curve, confusion_matrix
 
-def clean_data(ferret_orig):
+def clean_data(ferret_orig, remove_brain_measures):
     ferret = ferret_orig.copy()
 
     # Brain regional size measurements
@@ -13,8 +13,9 @@ def clean_data(ferret_orig):
                              'Summed White Matter GFAP (um)',
                              'CC Thickness (um)', 'Overall Sulci Sum', 'Overall Gyri Sum']
 
-    # Remove brain volume columns
-    ferret.drop(columns=columns_brain_volumes, inplace=True)
+    if remove_brain_measures:
+        # Remove brain volume columns
+        ferret.drop(columns=columns_brain_volumes, inplace=True)
 
     # Remove rows with trial and run information and walkway width
     ferret.drop(columns=['Trial', 'Run', 'WalkWay_Width_(cm)'], inplace=True)
@@ -48,8 +49,9 @@ def clean_data(ferret_orig):
     ferret.rename(columns={'Cortical Lesion (0-4) + Mineralization (0-4)': 'total gross score',
                            'Morph. Injury Score (path+BM+WM)': 'Pathology Score'}, inplace=True)
 
-    # Make total gross score a binary columns because there are so few cases with values >1
-    ferret.loc[ferret['total gross score'] > 1, 'total gross score'] = 1
+    if make_tgs_binary:
+        # Make total gross score a binary columns because there are so few cases with values >1
+        ferret.loc[ferret['total gross score'] > 1, 'total gross score'] = 1
 
     # give every subject group a number
     controlcode = 0  # Control = 0
