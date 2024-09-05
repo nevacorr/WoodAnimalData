@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from sklearn.metrics import auc, roc_curve, confusion_matrix
 
-def clean_data(ferret_orig, remove_brain_measures):
+def clean_data(ferret_orig, remove_brain_measures, make_tgs_binary):
     ferret = ferret_orig.copy()
 
     # Brain regional size measurements
