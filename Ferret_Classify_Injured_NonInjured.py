@@ -27,16 +27,18 @@ from data_cleaning_and_exploration import plot_most_important_features
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 1000
+num_tt_splits = 10000
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
+remove_brain_measures = 1
+make_tgs_binary = 1
 
 # Load ferret data with multiple run information
 ferret_orig = pd.read_csv('data/Ferret CatWalk EpoTH IDs 60-74 Run Statistics with Brain Morphology.csv')
 
 # Clean data
-ferret = clean_data(ferret_orig)
+ferret = clean_data(ferret_orig, remove_brain_measures, make_tgs_binary)
 
 # Class coding: 0: Control, 1: Vehicle, 2: Epo, 3: TH
 
@@ -103,7 +105,7 @@ pipe_logreg = Pipeline([
 # }
 
 param_grid = {
-    'pca__n_components': [20],  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
+    'pca__n_components': [5],  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
     'logreg__penalty': ['l2'],
     'logreg__C': [0.001]
 }
