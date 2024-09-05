@@ -59,10 +59,10 @@ for meas in cw_measures:
         if i != 4:
             ax.get_legend().remove()
         else:
-            sns.move_legend(ax, "upper right", bbox_to_anchor=(1.4, 1))
+            sns.move_legend(ax, "upper right", bbox_to_anchor=(1.45, 1))
 
         # Scatter plot with regression line
-        sns.regplot(x=ferret[brain_feature], y=ferret[meas], ax=ax, ci=None, scatter=False, color='k')
+        sns.regplot(x=ferret[brain_feature], y=ferret[meas], ax=ax, ci=None, scatter=False, color='gray')
         ax.set_title(f'vs\n{brain_feature}\nr={r_value:.2f} p={p_value:.3f}', fontsize=10)
         ax.set_xlabel(brain_feature)
         ax.set_ylabel(meas)
