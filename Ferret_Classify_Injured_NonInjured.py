@@ -27,7 +27,7 @@ from data_cleaning_and_exploration import plot_most_important_features
 target = 'total gross score' #options: 'Pathology Score', 'total gross score', 'avg_5.30', 'Overall Sulci Sum', 'Overall Gyri Sum'
 # Define project directory location
 outputdir = '/home/toddr/neva/PycharmProjects/WoodAnimalData'
-num_tt_splits = 10000
+num_tt_splits = 1000
 show_confusion_matrices = 0
 show_roc_curve = 0
 plot_distributions = 0
@@ -105,7 +105,7 @@ pipe_logreg = Pipeline([
 # }
 
 param_grid = {
-    'pca__n_components': [5],  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
+    'pca__n_components': [20],  # 11 or more components often leads to overfitting of the data (auc_roc >0.9 for train set)
     'logreg__penalty': ['l2'],
     'logreg__C': [0.001]
 }
@@ -267,39 +267,41 @@ final_pipe_logreg_model = Pipeline([
 # Make sure data is transformed first
 final_pipe_logreg_model.fit(ferret_cv[final_features], ferret_cv[target].values.ravel())
 
-# Evaluate performance on TH animals
-# Find all cases where animal is TH
-ferret_th = ferret[ferret['Group'].isin([3])]
-ferret_th.reset_index(inplace=True, drop=True)
-y_th = ferret_th[target]
-y_hat_th = final_pipe_logreg_model.predict(ferret_th[final_features])
-y_proba_th = final_pipe_logreg_model.predict_proba(ferret_th[final_features])
+# Evaluate performance on TH or Epo animals
+# Find all cases where animal is in this group (TH=3, Epo=2)
+dx_group=2
 
-th_IDs = ferret_th['ID']
+ferret_dx = ferret[ferret['Group'].isin([dx_group])]
+ferret_dx.reset_index(inplace=True, drop=True)
+y_dx = ferret_dx[target]
+y_hat_dx = final_pipe_logreg_model.predict(ferret_dx[final_features])
+y_proba_dx = final_pipe_logreg_model.predict_proba(ferret_dx[final_features])
+
+dx_IDs = ferret_dx['ID']
 
 # Assign ID numbers to predictions
-y_hat_th_df = pd.DataFrame()
-y_hat_th_df['ID'] = th_IDs
-y_hat_th_df['pred'] = y_hat_th
-y_hat_th_df.reset_index(inplace=True, drop=True)
+y_hat_dx_df = pd.DataFrame()
+y_hat_dx_df['ID'] = dx_IDs
+y_hat_dx_df['pred'] = y_hat_dx
+y_hat_dx_df.reset_index(inplace=True, drop=True)
 
-y_proba_th_df = pd.DataFrame()
-y_proba_th_df['ID'] = th_IDs
-y_proba_th_df['prob0'] = y_proba_th[:, 0]
-y_proba_th_df['prob1'] = y_proba_th[:, 1]
+y_proba_dx_df = pd.DataFrame()
+y_proba_dx_df['ID'] = dx_IDs
+y_proba_dx_df['prob0'] = y_proba_dx[:, 0]
+y_proba_dx_df['prob1'] = y_proba_dx[:, 1]
 
 # Group by 'ID' and determine the average probability for th
-y_proba_th_mean = y_proba_th_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
+y_proba_dx_mean = y_proba_dx_df.groupby('ID')[['prob0', 'prob1']].mean().reset_index()
 
 # Make a dataframe of unique subjects with ID and Sex
-th_groupby_df = ferret_th.groupby('ID').mean()
-th_groupby_df = th_groupby_df.reset_index()
-th_groupby_df = th_groupby_df[['ID', target]]
-th_groupby_df.reset_index(inplace=True, drop=True)
+dx_groupby_df = ferret_dx.groupby('ID').mean()
+dx_groupby_df = dx_groupby_df.reset_index()
+dx_groupby_df = dx_groupby_df[['ID', target]]
+dx_groupby_df.reset_index(inplace=True, drop=True)
 
 # Calculate AUC
-auc_roc_th = roc_auc_score(th_groupby_df.loc[:, target], y_proba_th_mean.loc[:, 'prob1'])
-print(f'AUC ROC for TH data is {auc_roc_th}')
+auc_roc_dx = roc_auc_score(dx_groupby_df.loc[:, target], y_proba_dx_mean.loc[:, 'prob1'])
+print(f'AUC ROC for dx group data is {auc_roc_dx}')
 
 plot_most_important_features(most_important_feature_allsplits_df)
 
